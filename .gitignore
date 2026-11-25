@@ -1,0 +1,19 @@
+# Virtual environments & caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+*.egg-info/
+
+# Large binaries, encoded datasets & model checkpoints
+data/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.bin
+
+# Course handout PDFs
+*.pdf
