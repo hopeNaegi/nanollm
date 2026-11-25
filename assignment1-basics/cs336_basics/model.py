@@ -22,6 +22,7 @@ class TransformerBlock(nn.Module):
         max_seq_len: int,
         theta: float,
         use_causal_mask: bool = True,
+        use_flash: bool = False,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -33,6 +34,7 @@ class TransformerBlock(nn.Module):
             max_seq_len=max_seq_len,
             theta=theta,
             use_causal_mask=use_causal_mask,
+            use_flash=use_flash,
             device=device,
             dtype=dtype,
         )
@@ -64,6 +66,7 @@ class TransformerLM(nn.Module):
         d_ff: int,
         rope_theta: float = 10000.0,
         use_causal_mask: bool = True,
+        use_flash: bool = False,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -85,6 +88,7 @@ class TransformerLM(nn.Module):
                     max_seq_len=context_length,
                     theta=rope_theta,
                     use_causal_mask=use_causal_mask,
+                    use_flash=use_flash,
                     device=device,
                     dtype=dtype,
                 )

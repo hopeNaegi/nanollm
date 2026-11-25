@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class Linear(nn.Module):
@@ -155,6 +156,7 @@ class MultiHeadSelfAttention(nn.Module):
         max_seq_len: int | None = None,
         theta: float | None = None,
         use_causal_mask: bool = True,
+        use_flash: bool = False,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -163,6 +165,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.d_k = d_model // num_heads
         self.use_causal_mask = use_causal_mask
+        self.use_flash = use_flash
 
         self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
         self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
@@ -202,14 +205,17 @@ class MultiHeadSelfAttention(nn.Module):
             Q = self.rope(Q, pos)
             K = self.rope(K, pos)
 
-        # 4. 构造 (S, S) 下三角因果掩码，阻止第 i 个词关注未来的第 j > i 个词
-        if self.use_causal_mask:
-            causal_mask = torch.tril(torch.ones((S, S), device=x.device, dtype=torch.bool))
+        # 4 & 5. 根据开关选择：PyTorch 融合 FlashAttention 或手写标准 Attention
+        if self.use_flash:
+            attn_out = F.scaled_dot_product_attention(
+                Q, K, V, is_causal=self.use_causal_mask
+            )
         else:
-            causal_mask = None
-
-        # 5. 并行计算所有头的缩放点积注意力: (*batch_dims, num_heads, S, d_k)
-        attn_out = scaled_dot_product_attention(Q, K, V, mask=causal_mask)
+            if self.use_causal_mask:
+                causal_mask = torch.tril(torch.ones((S, S), device=x.device, dtype=torch.bool))
+            else:
+                causal_mask = None
+            attn_out = scaled_dot_product_attention(Q, K, V, mask=causal_mask)
 
         # 6. 把各头拼回 (*batch_dims, S, d_model)，再过输出投影层融合各头信息
         merged = attn_out.transpose(-3, -2).contiguous().view(*batch_dims, S, self.d_model)
