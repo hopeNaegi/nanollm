@@ -1,8 +1,0 @@
-Prompt: 'Once upon a time'
-
-=== With Causal Mask (Step 400 | train=2.7569, val=2.9034) ===
-Once upon a time, there was a little boy named Tim. Tim loved to play with his friends. One day, Tim's friend, Sam "Why are you sad?" Tim said, "I looks up!" They worked together to play with Tim. Tim and Sam were sad, but they looked sad. They looked at each other and saw the cake. They looked at the very waved goodbye to play together.
-
-
-=== Without Causal Mask (Step 400 | train=0.0573, val=0.0651) ===
-Once upon a time,,,,,,,,, what what what what what what what what what what what what what what what what what what what what what some high longer what what what what what what what what what what what you?" it what whate,, it what what what what what what what what what what what what it what what what what what it what what what what,,,,
