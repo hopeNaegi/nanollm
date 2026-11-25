@@ -154,6 +154,7 @@ class MultiHeadSelfAttention(nn.Module):
         num_heads: int,
         max_seq_len: int | None = None,
         theta: float | None = None,
+        use_causal_mask: bool = True,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -161,6 +162,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_k = d_model // num_heads
+        self.use_causal_mask = use_causal_mask
 
         self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
         self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
@@ -201,7 +203,10 @@ class MultiHeadSelfAttention(nn.Module):
             K = self.rope(K, pos)
 
         # 4. 构造 (S, S) 下三角因果掩码，阻止第 i 个词关注未来的第 j > i 个词
-        causal_mask = torch.tril(torch.ones((S, S), device=x.device, dtype=torch.bool))
+        if self.use_causal_mask:
+            causal_mask = torch.tril(torch.ones((S, S), device=x.device, dtype=torch.bool))
+        else:
+            causal_mask = None
 
         # 5. 并行计算所有头的缩放点积注意力: (*batch_dims, num_heads, S, d_k)
         attn_out = scaled_dot_product_attention(Q, K, V, mask=causal_mask)
