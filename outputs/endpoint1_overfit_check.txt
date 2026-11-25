@@ -1,0 +1,11 @@
+Device: cuda | Params: 5,507,328 | Vocab: 4096
+Expected random init loss ln(4096) = 8.3178
+Step    0 (init): loss = 8.3529
+Step    1: loss = 8.3529
+Step   10: loss = 2.6213
+Step   25: loss = 0.1066
+Step   50: loss = 0.0020
+Step  100: loss = 0.0011
+Step  150: loss = 0.0010
+Step  200: loss = 0.0009
+Avg step time: 28.72 ms | Peak GPU mem: 446.2 MB
