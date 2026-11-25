@@ -15,5 +15,7 @@ checkpoints/
 *.npy
 *.bin
 
-# Course handout PDFs
+# Course handout PDFs & local AI workflow docs
 *.pdf
+AGENTS.md
+PROGRESS.md
