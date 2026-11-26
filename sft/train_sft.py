@@ -86,11 +86,11 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
 
     train_raw = load_dataset("openai/gsm8k", "main", split="train[:1500]")
-    dataset = GSM8KSFTDataset(train_raw, tokenizer, max_len=512)
+    dataset = GSM8KSFTDataset(train_raw, tokenizer, max_len=384)
     print(f"SFT 训练集样本数: {len(dataset)} (仅来自 GSM8K train，与 test 零重叠)", flush=True)
 
-    micro_bs = 2
-    grad_accum = 8  # 等效 Batch Size = 2 * 8 = 16，减小单次前向 logits 峰值显存
+    micro_bs = 1
+    grad_accum = 16  # 等效 Batch Size = 1 * 16 = 16，单条零 padding 且峰值显存再砍半
     epochs = 2
     max_lr = 2e-4
     min_lr = 2e-5
@@ -102,10 +102,10 @@ def main() -> None:
         collate_fn=make_collate_fn(tokenizer.pad_token_id),
     )
 
-    # 2. 加载基座模型并开启激活重计算（Gradient Checkpointing），8GB 显存轻松训 0.5B 模型
+    # 2. 加载基座模型并开启激活重计算，8GB 显存稳跑 0.5B 模型
     base_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16).to("cuda")
     base_model.config.use_cache = False
-    base_model.gradient_checkpointing_enable()
+    base_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     base_model.enable_input_require_grads()
     lora_cfg = LoraConfig(
         r=16,
@@ -140,6 +140,7 @@ def main() -> None:
             loss = out.loss / grad_accum
             loss.backward()
             accum_loss += float(loss.item())
+            del out, loss
             micro_count += 1
 
             if micro_count % grad_accum == 0:
