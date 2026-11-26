@@ -116,3 +116,46 @@ cd assignment1-basics
 ### 4.3 现代推理核心取舍：`KV Cache` 与 `GQA`
 * **`KV Cache`（显存换算力）**：朴素自回归生成每吐 1 个新词都会重算全部历史词的 `K, V`（总计算 `O(S²)`）；因因果掩码保证历史 `K, V` 不受后续词影响，推理时将其缓存在显存中，每步仅算最新 1 个词的 `q, k, v` 并追加到缓存，但代价是显存占用随上下文长度与并发数线性增长，使推理转为内存带宽受限。
 * **`GQA`（分组查询注意力）**：让多个 `Q` 头共享同一组 `K, V` 头（缩小 `k_proj / v_proj` 输出维度），按共享比例直接成倍削减推理 `KV Cache` 显存占用与搬运开销，同时几乎不损失模型质量。
+
+---
+
+## 5. 实验四：开源模型 LoRA SFT 后训练与独立评估（Stage 2 Part 2）
+
+### 5.1 模型对照与 SFT 配置
+* **开源现代模型实查**（`Qwen/Qwen2.5-0.5B`，`494,032,768` 参数，`24 layers, d_model=896, d_ff=4864, vocab=151,936`）：
+  * 主干与自研 `TransformerLM` 同源（RMSNorm + RoPE + SwiGLU），核心架构升级为 **7:1 GQA**（`q_proj=(896, 896)` 对应 14 个 Q 头，`k_proj / v_proj=(128, 896)` 仅 2 个 KV 头，将推理 `KV Cache` 显存降为 `1/7`）。
+* **SFT 训练目标与显存优化**（`sft/train_sft.py`）：
+  * 数据隔离：仅取 `openai/gsm8k` 官方 `train[:1500]` 微调，评估严格使用零重叠的 `test[:100]`。
+  * 训练目标：**Prompt 掩码（`labels = -100`）**，仅对 `Answer + <EOS>` 部分计算交叉熵并梯度下降；挂载 **LoRA（`r=16, alpha=32`）** 仅训练 **`8.80M`（`1.75%`）** 参数。
+  * 显存排查实录：初始 `micro_bs=4` 与 `micro_bs=2` 在 8GB 显卡上因 `151,936` 大词表 `logits` 与 24 层激活值触发 CUDA OOM；启用 `gradient_checkpointing` + `micro_bs=1, grad_accum=16`（保持等效 `BS=16`）并及时释放 `out, loss` 后，峰值显存成功压至 **`1898.8 MB`**，187 步（2 epochs）耗时 `684.5s`，`sft_loss` 从 `0.8739` 降至 `~0.30`。
+
+![SFT Training Loss](outputs/endpoint4_sft_loss.png)
+
+### 5.2 独立测试集前后对比与能力退化检查
+使用同一评估脚本 `sft/eval_gsm8k.py`（贪心解码 `do_sample=False`）评测微调前后的表现：
+
+| 评估维度 | 微调前 Base (`Qwen2.5-0.5B`) | 微调后 LoRA SFT | 变化与解读 |
+| :--- | :---: | :---: | :--- |
+| **GSM8K `test[:100]` Exact Match** | `29.0%` (29/100) | **`33.0%` (33/100)** | 净增 `+4.0%`（逐题翻转：都对 `22`、救回 `+11`、**改错 `-7`**、都错 `60`） |
+| **GSM8K `####` 格式遵守率** | `3.0%` (3/100) | **`100.0%` (100/100)** | **`+97.0%`**，SFT 极快教会外在格式模板 |
+| **6 道非数学通用常识题** | 6/6 事实正确（但答完会续写无关网页） | **出现复读、格式污染与事实反转** | 暴露单领域 SFT 的副作用与遗忘 |
+
+![SFT Evaluation Comparison](outputs/endpoint4_sft_comparison.png)
+
+### 5.3 典型失败与退化案例归因（Bad Cases）
+1. **思维链过度压缩导致退化（`Q#0`：`Base 对 18 -> SFT 错 224`）**：Base 展开 3 步详细推理算对 `16-7=9, 9×2=18`；SFT 强行模仿 GSM8K 训练集极简 3 行 `<<...>>` 风格，跳过减法直接算 `7×2=14, 16×14=224`。
+2. **同类压缩跳步退化（`Q#10`：`Base 对 366 -> SFT 错 294`）**：Base 完整计算 `180 - 54 = 126` 得 `366`；SFT 算出 `54` 后省略减法直接累加得 `294`。
+3. **模型能力上限（`Q#2`：`GT=70000` vs `SFT=65000`）**：格式已 100% 规范，但仍混淆“原值增值 150%”与“含维修费增值”，表明 0.5B 模型深层语义推理是瓶颈。
+4. **格式过拟合与 `<EOS>` 触发绑定（通用题 1 & 4）**：SFT 训练集里 `<EOS>` 仅在 `#### <数字>` 后出现，导致非数学题要么强行输出 `#### 1`（莎士比亚题），要么在未触发 `####` 时陷入无限复读（法国首都/光合作用/三原色）。
+5. **事实知识退化 / 灾难性遗忘（通用题 5：冰为什么浮在水上）**：Base 正确答出 `lower density than water`，单领域数学 SFT 后反转为错误的 `Ice is denser than water` 并附加 `#### ice`。
+
+### 5.4 核心结论与复现命令
+* **结论与边界**：小规模单领域 LoRA SFT 能以极低显存（`<2 GB`）迅速对齐输出格式（`3% -> 100%`）并带来温和准确率提升（`29% -> 33%`），但训练 Loss 大幅下降并不等价于推理能力大幅跃升；同时单领域窄数据微调会引发**思维链压缩回归**、**`<EOS>` 过拟合**与**通用事实遗忘**。下一步改进方向为在 SFT 中按比例混入通用指令数据并保留较完整的推理链长度。
+
+```powershell
+# 一键复现实验四（在仓库根目录执行）
+.\assignment1-basics\.venv\Scripts\python.exe sft\eval_gsm8k.py --tag base
+.\assignment1-basics\.venv\Scripts\python.exe sft\train_sft.py
+.\assignment1-basics\.venv\Scripts\python.exe sft\eval_gsm8k.py --tag sft --lora_path checkpoints\qwen05b_gsm8k_lora
+.\assignment1-basics\.venv\Scripts\python.exe sft\analyze_sft.py
+```
