@@ -89,8 +89,8 @@ def main() -> None:
     dataset = GSM8KSFTDataset(train_raw, tokenizer, max_len=512)
     print(f"SFT 训练集样本数: {len(dataset)} (仅来自 GSM8K train，与 test 零重叠)", flush=True)
 
-    micro_bs = 4
-    grad_accum = 4  # 等效 Batch Size = 4 * 4 = 16
+    micro_bs = 2
+    grad_accum = 8  # 等效 Batch Size = 2 * 8 = 16，减小单次前向 logits 峰值显存
     epochs = 2
     max_lr = 2e-4
     min_lr = 2e-5
@@ -102,8 +102,11 @@ def main() -> None:
         collate_fn=make_collate_fn(tokenizer.pad_token_id),
     )
 
-    # 2. 加载基座模型并挂上 LoRA 小补丁（冻住原 4.94 亿参数，仅训练少量 LoRA 参数）
+    # 2. 加载基座模型并开启激活重计算（Gradient Checkpointing），8GB 显存轻松训 0.5B 模型
     base_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16).to("cuda")
+    base_model.config.use_cache = False
+    base_model.gradient_checkpointing_enable()
+    base_model.enable_input_require_grads()
     lora_cfg = LoraConfig(
         r=16,
         lora_alpha=32,
