@@ -6,10 +6,11 @@ __pycache__/
 .vscode/
 *.egg-info/
 
-# Large binaries, encoded datasets, outputs & model checkpoints
+# Large binaries, encoded datasets, raw outputs & model checkpoints
 data/
 checkpoints/
-outputs/
+outputs/*
+!outputs/*.png
 *.pt
 *.pth
 *.ckpt
