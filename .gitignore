@@ -17,7 +17,8 @@ outputs/*
 *.npy
 *.bin
 
-# Course handout PDFs & local AI workflow docs
+# Course handout PDFs & local archived notes
 *.pdf
+_archive/
 AGENTS.md
 PROGRESS.md
